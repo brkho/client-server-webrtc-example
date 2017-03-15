@@ -98,11 +98,11 @@ void OnIceCandidate(const webrtc::IceCandidateInterface* candidate) {
 
 // Callback for when the server receives a message on the data channel.
 void OnDataChannelMessage(const webrtc::DataBuffer& buffer) {
-  std::string data(buffer.data.data<char>(), buffer.data.size());
-  std::cout << data << std::endl;
-  std::string str = "pong";
-  webrtc::DataBuffer resp(rtc::CopyOnWriteBuffer(str.c_str(), str.length()), false /* binary */);
-  data_channel->Send(resp);
+  // std::string data(buffer.data.data<char>(), buffer.data.size());
+  // std::cout << data << std::endl;
+  // std::string str = "pong";
+  // webrtc::DataBuffer resp(rtc::CopyOnWriteBuffer(str.c_str(), str.length()), false /* binary */);
+  data_channel->Send(buffer);
 }
 
 // Callback for when the answer is created. This sends the answer back to the client.
@@ -135,7 +135,10 @@ void OnWebSocketMessage(WebSocketServer* /* s */, websocketpp::connection_hdl hd
   message_object.Parse(msg->get_payload().c_str());
   // Probably should do some error checking on the JSON object.
   std::string type = message_object["type"].GetString();
-  if (type == "offer") {
+  if (type == "ping") {
+    std::string id = msg->get_payload().c_str();
+    ws_server.send(websocket_connection_handler, id, websocketpp::frame::opcode::value::text);
+  } else if (type == "offer") {
     std::string sdp = message_object["payload"]["sdp"].GetString();
     webrtc::PeerConnectionInterface::RTCConfiguration configuration;
     webrtc::PeerConnectionInterface::IceServer ice_server;
@@ -186,6 +189,7 @@ int main() {
   // process can handle the game loop.
   ws_server.set_message_handler(bind(OnWebSocketMessage, &ws_server, ::_1, ::_2));
   ws_server.init_asio();
+  ws_server.clear_access_channels(websocketpp::log::alevel::all);
   ws_server.set_reuse_addr(true);
   ws_server.listen(8080);
   ws_server.start_accept();

@@ -10,7 +10,7 @@
  */
 
 // URL to the server with the port we are using for WebSockets.
-const webSocketUrl = 'ws://<server IP address>:8080';
+const webSocketUrl = 'ws://54.191.242.239:8080';
 // The WebSocket object used to manage a connection.
 let webSocketConnection = null;
 // The RTCPeerConnection through which we engage in the SDP handshake.
@@ -18,9 +18,18 @@ let rtcPeerConnection = null;
 // The data channel used to communicate.
 let dataChannel = null;
 
+const pingTimes = {};
+const pingLatency = {};
+let pingCount = 0;
+const PINGS_PER_SECOND = 20;
+const SECONDS_TO_PING = 20;
+let pingInterval;
+let startTime;
+
 // Callback for when we receive a message on the data channel.
 function onDataChannelMessage(event) {
-  console.log(event.data);
+  const key = event.data;
+  pingLatency[key] = performance.now() - pingTimes[key];
 }
 
 // Callback for when the data channel was successfully opened.
@@ -62,7 +71,10 @@ function onWebSocketOpen() {
 // Callback for when we receive a message from the server via the WebSocket.
 function onWebSocketMessage(event) {
   const messageObject = JSON.parse(event.data);
-  if (messageObject.type === 'answer') {
+  if (messageObject.type === 'ping') {
+    const key = messageObject.payload;
+    pingLatency[key] = performance.now() - pingTimes[key];
+  } else if (messageObject.type === 'answer') {
     rtcPeerConnection.setRemoteDescription(new RTCSessionDescription(messageObject.payload));
   } else if (messageObject.type === 'candidate') {
     rtcPeerConnection.addIceCandidate(new RTCIceCandidate(messageObject.payload));
@@ -78,7 +90,39 @@ function connect() {
   webSocketConnection.onmessage = onWebSocketMessage;
 }
 
+function printLatency() {
+  for (let i = 0; i < PINGS_PER_SECOND * SECONDS_TO_PING; i++) {
+    console.log(i + ': ' + pingLatency[i + '']);
+  }
+}
+
+function sendDataChannelPing() {
+  const key = pingCount + '';
+  pingTimes[key] = performance.now();
+  dataChannel.send(key);
+  pingCount++;
+  if (pingCount === PINGS_PER_SECOND * SECONDS_TO_PING) {
+    clearInterval(pingInterval);
+    console.log('total time: ' + (performance.now() - startTime));
+    setTimeout(printLatency, 10000);
+  }
+}
+
+function sendWebSocketPing() {
+  const key = pingCount + '';
+  pingTimes[key] = performance.now();
+  webSocketConnection.send(JSON.stringify({type: 'ping', payload: key}));
+  pingCount++;
+  if (pingCount === PINGS_PER_SECOND * SECONDS_TO_PING) {
+    clearInterval(pingInterval);
+    console.log('total time: ' + (performance.now() - startTime));
+    setTimeout(printLatency, 10000);
+  }
+}
+
 // Pings the server via the DataChannel once the connection has been established.
 function ping() {
-  dataChannel.send('ping');
+  startTime = performance.now();
+  // pingInterval = setInterval(sendDataChannelPing, 1000.0 / PINGS_PER_SECOND);
+  pingInterval = setInterval(sendWebSocketPing, 1000.0 / PINGS_PER_SECOND);
 }
